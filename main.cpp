@@ -1,6 +1,6 @@
 //
 //  main.cpp
-//  Dual Decomposition
+//  genInput_SSLP
 //
 //  Created by Yan Deng on 12/9/14.
 //  Copyright (c) 2014 noodle. All rights reserved.
@@ -131,11 +131,11 @@ public:
 				x_sol[i] = rhs.x_sol[i];
 		}
 	};
-	
+	/*
 	~feasoln(){
 	delete[] x_sol;
 	}
-	
+	*/
 	int numvio(param* data);
 	bool same(feasoln comp);
 	bool operator< (const feasoln &sub) const{
@@ -179,7 +179,7 @@ public:
 		x0_sol = new int[d];
 		x1_sol = new int[d];
 	};
-	
+	/*
 	~sortedsce(){
 	try{
 	delete[] x0_sol;
@@ -188,7 +188,7 @@ public:
 	delete[] x1_sol;
 	} catch (IloException& e) {x1_sol=NULL;}
 	};
-	
+	*/
 };
 class nonanti {
 public:
@@ -269,6 +269,8 @@ public:
 		}
 	}
 };
+bool bysparse(const cut& lhs, const cut& rhs){ return lhs.sparse > rhs.sparse; };
+bool byspv(const cut& lhs, const cut& rhs){ return (lhs.spv.compare(rhs.spv)>0); };
 cut aggregate(cut* c1, cut* c2){
 	cut result;
 	int num = 0;
@@ -308,7 +310,6 @@ const int SBG_it = 2;
 const int num_rep = 10;
 
 const int maxobjvalue = 100;
-bool visitLB[maxobjvalue];
 
 int main(){
 	// genInstance(DW,DX,Db,max_coe);	
@@ -333,7 +334,7 @@ void genInstance(int m, int n, int db, int k){
 	sprintf(filename, "input.txt");
 	ofstream out(filename);
 	out << "dimx" << "\t" << n << endl << "c";
-	for (int j = 0; j<n; j++)							// Objective coefficients
+	for (int j = 0; j<n; j++)
 		out << "\t" << 1;
 	out << endl << "numsce\t" << m << endl << "dimy\t" << 0 << endl << "dimb\t" << db << endl;
 	int* x;
@@ -359,7 +360,6 @@ void genInstance(int m, int n, int db, int k){
 	delete[] x;
 }
 void buildNAP(int N, int D, nonanti* result){
-	// construct A and r
 	for (int i = 0; i<result->dimA; i++)
 		result->r[i] = 0;
 	for (int w = 0; w<N; w++)
@@ -380,7 +380,7 @@ void solveNAP(param* data, nonanti* nap, double epsilon){
 	IloEnv env;
 	IloModel model(env);
 	IloIntVarArray2 x(env, data->num_sce);
-	IloIntVarArray z(env, data->num_sce, 0, 1);		// IMPORTANT!!!!!!!!!! SO THERE EXIST DUALITY GAP!!!!!!!
+	IloIntVarArray z(env, data->num_sce, 0, 1);
 	for (int n = 0; n<data->num_sce; n++){
 		char VarName[10];
 		x[n] = IloIntVarArray(env, data->dimx, 0, 1);
@@ -392,7 +392,6 @@ void solveNAP(param* data, nonanti* nap, double epsilon){
 		z[n].setName(VarName);
 	}
 
-	// formulate objective	
 	IloExpr obj(env);
 	for (int n = 0; n<data->num_sce; n++)
 		for (int d = 0; d<data->dimx; d++)
@@ -407,7 +406,7 @@ void solveNAP(param* data, nonanti* nap, double epsilon){
 				left += nap->A[n][i][d] * x[n][d];
 		model.add(left <= nap->r[i]);
 	}
-	// formulate cc-1
+
 	for (int n = 0; n<data->num_sce; n++)
 		for (int i = 0; i<data->dimb; i++){
 		IloExpr left(env);
@@ -416,7 +415,7 @@ void solveNAP(param* data, nonanti* nap, double epsilon){
 		left += M*z[n];
 		model.add(left >= data->b[n][i]);
 		}
-	// formulate cc-2
+
 	if (1 == 1){
 		IloExpr left(env);
 		for (int n = 0; n<data->num_sce; n++)
@@ -424,7 +423,6 @@ void solveNAP(param* data, nonanti* nap, double epsilon){
 		model.add(left <= floor(epsilon*data->num_sce));
 	}
 	IloCplex cplex(model);
-	//ofstream logfile("Cplex.log");
 	cplex.setOut(env.getNullStream());
 	cplex.setWarning(env.getNullStream());
 	cplex.setWarning(env.getNullStream());
@@ -464,12 +462,11 @@ void robust(param* data, feasoln *soln){
 		sprintf(VarName, "x(%d)", d);
 		x[d].setName(VarName);
 	}
-	// formulate objective
+
 	IloExpr obj(env);
 	for (int d = 0; d<data->dimx; d++)
 		obj += data->c[d] * x[d];
 	model.add(IloMinimize(env, obj));
-	// formulate cc as hard
 	for (int n = 0; n<data->num_sce; n++)
 		for (int i = 0; i<data->dimb; i++){
 		IloExpr left(env);
@@ -499,22 +496,21 @@ void robust(param* data, feasoln *soln){
 }
 void subgradient(param* data, nonanti* nap, double epsilon){
 
-	for (int i = 0; i<maxobjvalue; i++)
-		visitLB[i] = false;
-
-
 	IloEnv env;
 
 	int num_aggregate = 0;
 
+	// initiate upper bound and lower bound
 	feasoln bestfea(data->dimx);
 	robust(data, &bestfea);
 	int LB = -1;
 	int UB = bestfea.obj;
 
+	// initialize lambda
 	double* lambda;
 	lambda = new double[data->num_sce*data->dimx];
 
+	// initialize h0_n(\lambda), h1_n(\lambda)
 	IloModelArray h0(env, data->num_sce);
 	IloModelArray h1(env, data->num_sce);
 	IloIntVarArray2 x0(env, data->num_sce);
@@ -606,6 +602,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 		iteration_BND++;
 		int iteration_SBG = 0;
 
+		// ----------------- FORMULATE CUTS -----------------
 		for (int n = 0; n<data->num_sce; n++){
 			cutconstr0[n].clear();
 			cutconstr1[n].clear();
@@ -627,6 +624,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 			h0[n].add(cutconstr0[n]);
 			h1[n].add(cutconstr1[n]);
 		}
+		// ----------------- LOWER BOUNDING -----------------
 		fealist.clear();
 		radarlist.clear();
 		for (int i = 0; i<nap->dimA; i++)
@@ -635,6 +633,8 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 		double lastV = M;
 		double currentV = 0;
 
+		// (0) while(iteration_SBG < iteration_BND + 1){
+		// (1) while(iteration_SBG < SBG_it){
 		while (!((currentV - lastV >= 0) && (currentV - lastV < 0.05))){
 
 			lastV = currentV;
@@ -649,6 +649,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 				cout << n << ",";
 				sortedsce sub(n, data->dimx);
 
+				// reformulate subproblem objective
 				IloExpr obj0(env);
 				IloExpr obj1(env);
 				/*
@@ -701,7 +702,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 				}
 
 				feasoln h0soln(sub.x0_sol, data->c, data->dimx);
-				if (h0soln.obj >= LB && h0soln.obj <= (UB - 1)){
+				if (h0soln.obj >= LB && h0soln.obj <= (UB - 1)){	// otherwise, the solution will be cut off by the obj cuts. 
 					bool flag = true;
 					for (int k = 0; k<fealist.size(); k++)
 						if (fealist.at(k).same(h0soln)){
@@ -741,6 +742,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 
 			std::sort(slist.begin(), slist.end());
 
+			// compute dual objective (lower bound);
 			double v = 0;
 			for (int i = 0; i<nap->dimA; i++)
 				v += -lambda[i] * nap->r[i];
@@ -751,6 +753,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 
 			currentV = v;
 
+			// compute gradient		
 			double gv_n2 = 0;
 			for (int i = 0; i<nap->dimA; i++){
 				gv[i] = nap->r[i];
@@ -763,6 +766,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 				gv_n2 += gv[i] * gv[i];
 			}
 
+			// update the best v
 			if (v>LB){
 				LB = ceil(v);
 				if (LB >= UB)
@@ -776,6 +780,9 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 					fealist.erase(fealist.begin(), fealist.begin() + i);
 				}
 			}
+
+			// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Radar for deciding step length 		
+			/*
 			RadarSBG radar;
 			radar.lam = new double[nap->dimA];
 			radar.s = new int[nap->dimA];
@@ -795,7 +802,23 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 			alpha = ((UB+LB)/2 - v)/(gv_n2);
 
 			radarlist.push_back(radar);
+			*/
+			// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+			// update lambda
+			// double alpha = 2/(9*data.num_sce*data.dimx);			                 //  (0) constant step size	
+			// double alpha = gamma/iteration_SBG;						             //  (1) unnormalized divergent square-summable.  
+			// double alpha = gamma/(iteration_SBG*sqrt(gv_n2));		                 // *(2) normalizd divergent square-summable.		(converge well for input-problematic.txt)
+			double alpha = ((UB + LB) / 2 - v) / gv_n2;
+			// double alpha = ((UB+LB)/2 + gamma/iteration_SBG  - v)/gv_n2;	         // *(3) Polyak (converge not as well as (2))
+			// double alpha = (optimalobj - v)/gv_n2;                                   // *(3') Polyak, use the real optimal obj as the esti.
+			// double alpha = (UB - v)/(gv_n2);	 //  (4) Polyak' (not converge) 
+
+			/* // Use if want to enforce lambda >= 0
+			for (int i=0;i<nap.dimA;i++)
+			if (alpha*gv[i]>lambda[i])
+			alpha = (lambda[i]/gv[i])*0.95;
+			*/
 
 			for (int i = 0; i<nap->dimA; i++)
 				lambda[i] = lambda[i] - alpha*gv[i];
@@ -817,6 +840,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 		bool stop = false;
 		if (LB <= UB - 1){
 
+			// --------------- UPPER BOUNDING ------------------
 			std::sort(fealist.begin(), fealist.end());
 			for (int i = 0; i<fealist.size(); i++){
 				if (fealist.at(i).numvio(data) <= floor(data->num_sce*epsilon)){
@@ -830,9 +854,10 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 				}
 			}
 
-			if (LB <= UB-1){
+			if (LB <= UB - 1){
 				int num_cut = 0;
-				for (int j = 0; j<fealist.size(); j++){
+				// ---------------- CUTTING -------------------
+				for (int j = 0; j<fealist.size(); j++){					// add LL cuts
 					if (fealist.at(j).obj <= UB - 1){
 						num_cut++;
 						cut newcut(&fealist.at(j));
@@ -843,7 +868,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 				}
 
 				double ST = cplex.getCplexTime();
-
+				sort(cuts.begin(), cuts.end(), bysparse);
 				int head = 0;
 				int tail;
 				while (head<cuts.size() - 1){
@@ -854,6 +879,8 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 						if (tail >= cuts.size())
 							break;
 					}
+					sort(cuts.begin() + head, cuts.begin() + tail, byspv);
+
 					bool* deletecut = new bool[tail - head];
 					for (int del = 0; del<tail - head; del++)
 						deletecut[del] = false;
@@ -888,6 +915,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 						cuts.erase(cuts.begin() + head + del, cuts.begin() + head + del + 1);
 						}
 
+					sort(cuts.begin() + tail, cuts.end(), bysparse);
 					head = tail;
 				}
 				double ET = cplex.getCplexTime();
@@ -925,6 +953,7 @@ void subgradient(param* data, nonanti* nap, double epsilon){
 		}
 	}
 
+	// relea
 	delete[] lambda;
 	delete[] gv;
 }
